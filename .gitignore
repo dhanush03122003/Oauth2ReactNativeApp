@@ -1,0 +1,27 @@
+# System Files
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production Build Artifacts
+client/dist/
+client/build/
+server/dist/
+
+# Log Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker Local Storage Wipes
+.docker/
+
+# --- ALLOW ENV FILES ---
+# Un-ignoring environment variable configs per your project setup rules
+!*.env
+!*.env.local
