@@ -1,8 +1,9 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { initializeDatabase } from './db.js';
-import routes from './routes/index.js';
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import { initializeDatabase } from "./db.js";
+import cookieParser from "cookie-parser"; // <-- ADD THIS IMPORT
+import routes from "./routes/index.js";
 
 dotenv.config();
 
@@ -10,18 +11,21 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  }),
+);
 app.use(express.json());
+app.use(cookieParser());
 
 // Routes
-app.use('/api', routes);
+app.use("/api", routes);
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
 // Initialize database and start server
@@ -33,7 +37,7 @@ const startServer = async () => {
       console.log(`WebAuthn relying party: ${process.env.RP_ORIGIN}`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error("Failed to start server:", error);
     process.exit(1);
   }
 };

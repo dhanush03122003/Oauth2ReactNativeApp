@@ -203,3 +203,18 @@ export const findAuthenticatorByCredentialId = async (credentialId) => {
   );
   return result.rows[0];
 };
+
+export const wipeAllData = async () => {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      "TRUNCATE TABLE users, authenticators RESTART IDENTITY CASCADE;",
+    );
+    console.log("Database wiped successfully.");
+  } catch (error) {
+    console.error("Error wiping database:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};

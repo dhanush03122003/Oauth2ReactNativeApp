@@ -13,6 +13,41 @@ function Dashboard({ user }) {
     });
   }, []);
 
+  // --- DEV TOOLS WIPE DATABASE ---
+  const handleWipeDatabase = async () => {
+    const confirmFirst = window.confirm(
+      "⚠️ WARNING: This will delete ALL users and authenticators in the database.\n\nAre you sure you want to proceed?",
+    );
+
+    if (!confirmFirst) return;
+
+    const confirmSecond = window.confirm(
+      "Are you ABSOLUTELY sure? You will be logged out and your current passkeys will become invalid.",
+    );
+
+    if (!confirmSecond) return;
+
+    try {
+      const response = await fetch("/api/auth/dev/wipe-database", {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        alert(
+          "Database wiped. Please delete the remaining passkeys from your browser/OS settings manually.",
+        );
+        // Clear the token and force a hard reload to return to the login screen
+        localStorage.removeItem("webauthn_token");
+        window.location.reload();
+      } else {
+        const data = await response.json();
+        alert(`Failed to wipe database: ${data.error}`);
+      }
+    } catch (error) {
+      console.error("Error wiping database:", error);
+    }
+  };
+
   const fetchAuthenticators = async () => {
     try {
       const token = localStorage.getItem("webauthn_token");
@@ -106,13 +141,12 @@ function Dashboard({ user }) {
     }
   };
 
-  // --- NEW: EDIT NICKNAME ACTION ---
   const handleEditNickname = async (authId, currentNickname) => {
     const newName = prompt(
       `Edit the nickname for this device:`,
       currentNickname,
     );
-    if (newName === null || newName.trim() === currentNickname) return; // Cancelled or identical
+    if (newName === null || newName.trim() === currentNickname) return;
 
     try {
       const token = localStorage.getItem("webauthn_token");
@@ -130,7 +164,7 @@ function Dashboard({ user }) {
 
       const data = await response.json();
       if (response.ok) {
-        await fetchAuthenticators(); // Refresh UI list
+        await fetchAuthenticators();
       } else {
         alert(data.error || "Failed to update nickname.");
       }
@@ -139,9 +173,7 @@ function Dashboard({ user }) {
     }
   };
 
-  // --- NEW: DELETE AUTHENTICATOR ACTION ---
   const handleDeleteAuthenticator = async (authId, nickname) => {
-    // Enforcement rule on client-side check to proactively alert user
     if (authenticators.length <= 1) {
       alert(
         "Security Block: You cannot delete this device. You must have at least one authentication method active to prevent account lockout.",
@@ -164,7 +196,7 @@ function Dashboard({ user }) {
       const data = await response.json();
       if (response.ok) {
         alert("Device completely removed.");
-        await fetchAuthenticators(); // Hot reload state arrays
+        await fetchAuthenticators();
       } else {
         alert(data.error || "Failed to remove device.");
       }
@@ -318,7 +350,6 @@ function Dashboard({ user }) {
                               {auth.nickname || "Unnamed Device"}
                             </p>
 
-                            {/* NEW: NICKNAME EDIT INLINE TRIGGER BUTTON */}
                             <button
                               onClick={() =>
                                 handleEditNickname(auth.id, auth.nickname)
@@ -357,7 +388,6 @@ function Dashboard({ user }) {
                         </div>
                       </div>
 
-                      {/* ACTIONS DRAWER PACK (EDIT/DELETE COMPONENT STYLES) */}
                       <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100">
                         <div className="text-left sm:text-right hidden md:block mb-2">
                           <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">
@@ -368,7 +398,6 @@ function Dashboard({ user }) {
                           </p>
                         </div>
 
-                        {/* NEW: REMOVE AUTHENTICATOR TRIGGER BUTTON */}
                         <button
                           onClick={() =>
                             handleDeleteAuthenticator(auth.id, auth.nickname)
@@ -384,6 +413,25 @@ function Dashboard({ user }) {
                 })}
               </div>
             )}
+          </div>
+        </div>
+
+        {/* --- ADDED: DEVELOPER TOOLS --- */}
+        <div className="mt-12 pt-8 border-t border-gray-200">
+          <div className="bg-red-50 p-6 rounded-xl border border-red-200">
+            <h3 className="text-red-800 font-bold text-lg mb-2">
+              Developer Tools
+            </h3>
+            <p className="text-red-600 text-sm mb-4">
+              Use this to reset the testing environment. This will permanently
+              delete all users and passkeys from the PostgreSQL database.
+            </p>
+            <button
+              onClick={handleWipeDatabase}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
+            >
+              ☢️ Wipe Entire Database
+            </button>
           </div>
         </div>
       </div>

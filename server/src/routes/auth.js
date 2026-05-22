@@ -21,6 +21,7 @@ import {
   updateAuthenticatorCounter,
   deleteAuthenticatorById,
   updateAuthenticatorNickname,
+  wipeAllData,
 } from "../db.js";
 
 const router = express.Router();
@@ -203,24 +204,105 @@ router.get("/generate-authentication-options", async (req, res) => {
   }
 });
 
+// router.post("/verify-authentication", async (req, res) => {
+//   const { username, verification } = req.body;
+//   try {
+//     const user = await findUserByUsername(username);
+//     const passkey = await findAuthenticatorByCredentialId(verification.id);
+
+//     if (!user || !passkey) {
+//       return res.status(400).json({ error: "User or Passkey not found" });
+//     }
+
+//     const verificationResult = await verifyAuthenticationResponse({
+//       response: verification,
+//       expectedChallenge: user.current_challenge,
+//       expectedOrigin: RP_ORIGIN,
+//       expectedRPID: RP_ID,
+//       credential: {
+//         id: passkey.credential_id,
+//         // Using the newly imported isoBase64URL helper here:
+//         credentialID: isoBase64URL.toBuffer(passkey.credential_id),
+//         publicKey: new Uint8Array(passkey.public_key),
+//         counter: Number(passkey.counter),
+//         transports: passkey.transports,
+//       },
+//       requireUserVerification: false,
+//     });
+
+//     if (verificationResult.verified) {
+//       const { authenticationInfo } = verificationResult;
+
+//       await updateAuthenticatorCounter(
+//         passkey.credential_id,
+//         authenticationInfo.newCounter,
+//       );
+//       console.log("new counter ", authenticationInfo.newCounter);
+
+//       await clearUserChallenge(user.id);
+
+//       const token = await new SignJWT({
+//         userId: user.id,
+//         username: user.username,
+//       })
+//         .setProtectedHeader({ alg: "HS256" })
+//         .setIssuedAt()
+//         .setExpirationTime("1d")
+//         .sign(JWT_SECRET);
+
+//       return res.json({
+//         success: true,
+//         token,
+//         user: { id: user.id, username: user.username },
+//       });
+//     }
+//     res.status(400).json({ error: "Authentication failed" });
+//   } catch (error) {
+//     console.error("Auth Error:", error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+// --- Profile & Token Utility ---
+
 router.post("/verify-authentication", async (req, res) => {
   const { username, verification } = req.body;
   try {
-    const user = await findUserByUsername(username);
-    const passkey = await findAuthenticatorByCredentialId(verification.id);
+    let user;
+    let expectedChallenge;
 
-    if (!user || !passkey) {
-      return res.status(400).json({ error: "User or Passkey not found" });
+    // --- UPDATED LOGIC HERE ---
+    if (username) {
+      // 1. Manual Login Path: If the frontend sent a username, use the database challenge
+      user = await findUserByUsername(username);
+      expectedChallenge = user?.current_challenge;
+    } else if (req.cookies?.auth_challenge) {
+      // 2. Conditional UI Path: No username sent, so rely on the secure cookie
+      expectedChallenge = req.cookies.auth_challenge;
     }
 
+    if (!expectedChallenge)
+      throw new Error("No active authentication challenge found.");
+
+    // 2. Identify the passkey used from the incoming verification ID
+    const passkey = await findAuthenticatorByCredentialId(verification.id);
+    if (!passkey)
+      return res.status(400).json({ error: "Passkey not recognized." });
+
+    // 3. Identify the user if we haven't already (Conditional UI mode)
+    if (!user) {
+      user = await findUserById(passkey.user_id);
+    }
+    if (!user) return res.status(400).json({ error: "User not found." });
+
+    // 4. Verify the cryptographic signature
     const verificationResult = await verifyAuthenticationResponse({
       response: verification,
-      expectedChallenge: user.current_challenge,
+      expectedChallenge: expectedChallenge,
       expectedOrigin: RP_ORIGIN,
       expectedRPID: RP_ID,
       credential: {
         id: passkey.credential_id,
-        // Using the newly imported isoBase64URL helper here:
         credentialID: isoBase64URL.toBuffer(passkey.credential_id),
         publicKey: new Uint8Array(passkey.public_key),
         counter: Number(passkey.counter),
@@ -236,9 +318,10 @@ router.post("/verify-authentication", async (req, res) => {
         passkey.credential_id,
         authenticationInfo.newCounter,
       );
-      console.log("new counter ", authenticationInfo.newCounter);
 
+      // Clean up challenges
       await clearUserChallenge(user.id);
+      res.clearCookie("auth_challenge");
 
       const token = await new SignJWT({
         userId: user.id,
@@ -255,15 +338,12 @@ router.post("/verify-authentication", async (req, res) => {
         user: { id: user.id, username: user.username },
       });
     }
-    res.status(400).json({ error: "Authentication failed" });
+    res.status(400).json({ error: "Authentication failed." });
   } catch (error) {
     console.error("Auth Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
-
-// --- Profile & Token Utility ---
-
 router.post("/verify-token", async (req, res) => {
   const { token } = req.body;
   try {
@@ -413,6 +493,43 @@ router.put("/authenticator/:id/nickname", async (req, res) => {
       });
     }
     res.status(404).json({ error: "Authenticator not found or unauthorized." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+// router file (e.g., auth.js)
+
+// --- NEW: Generate Generic Options for Conditional UI Autofill ---
+router.get("/generate-conditional-options", async (req, res) => {
+  try {
+    const options = await generateAuthenticationOptions({
+      rpID: RP_ID,
+      // Leave allowCredentials empty or undefined!
+      // This tells the browser to search its internal storage for ANY key matching this RP_ID
+      allowCredentials: [],
+      userVerification: "preferred",
+    });
+
+    // NOTE: Because we don't know who the user is yet, we cannot save the challenge
+    // against a specific user row in the DB. Instead, we save it to a short-lived,
+    // secure HttpOnly cookie so we can verify it when they respond.
+    res.cookie("auth_challenge", options.challenge, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production", // true in production over HTTPS
+      sameSite: "lax",
+      maxAge: 60000, // 1 minute timeout
+    });
+
+    res.json(options);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/dev/wipe-database", async (req, res) => {
+  try {
+    await wipeAllData();
+    res.json({ success: true, message: "All records have been destroyed." });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
