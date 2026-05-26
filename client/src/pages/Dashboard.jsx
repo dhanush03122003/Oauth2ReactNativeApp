@@ -13,41 +13,6 @@ function Dashboard({ user }) {
     });
   }, []);
 
-  // --- DEV TOOLS WIPE DATABASE ---
-  const handleWipeDatabase = async () => {
-    const confirmFirst = window.confirm(
-      "⚠️ WARNING: This will delete ALL users and authenticators in the database.\n\nAre you sure you want to proceed?",
-    );
-
-    if (!confirmFirst) return;
-
-    const confirmSecond = window.confirm(
-      "Are you ABSOLUTELY sure? You will be logged out and your current passkeys will become invalid.",
-    );
-
-    if (!confirmSecond) return;
-
-    try {
-      const response = await fetch("/api/auth/dev/wipe-database", {
-        method: "POST",
-      });
-
-      if (response.ok) {
-        alert(
-          "Database wiped. Please delete the remaining passkeys from your browser/OS settings manually.",
-        );
-        // Clear the token and force a hard reload to return to the login screen
-        localStorage.removeItem("webauthn_token");
-        window.location.reload();
-      } else {
-        const data = await response.json();
-        alert(`Failed to wipe database: ${data.error}`);
-      }
-    } catch (error) {
-      console.error("Error wiping database:", error);
-    }
-  };
-
   const fetchAuthenticators = async () => {
     try {
       const token = localStorage.getItem("webauthn_token");
@@ -57,6 +22,10 @@ function Dashboard({ user }) {
       if (response.ok) {
         const data = await response.json();
         setAuthenticators(data.authenticators || []);
+      } else if (response.status === 401 || response.status === 404) {
+        console.warn("Session expired or invalid user context. Logging out.");
+        localStorage.removeItem("webauthn_token");
+        window.location.reload();
       }
     } catch (error) {
       console.error("Error fetching authenticators:", error);
@@ -250,10 +219,37 @@ function Dashboard({ user }) {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return "Unknown date";
     return new Date(dateString).toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
+    });
+  };
+
+  // --- TIME-AGO UTILITY FOR AUTH ACTIVITY TRACKING ---
+  const timeAgo = (dateString) => {
+    if (!dateString) return "Never used";
+
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+
+    if (seconds < 60) return "Just now";
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
+
+    const days = Math.floor(hours / 24);
+    if (days < 30) return `${days} day${days !== 1 ? "s" : ""} ago`;
+
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   };
 
@@ -374,11 +370,8 @@ function Dashboard({ user }) {
                             {info.subText}
                           </p>
 
-                          <div className="flex gap-3 text-[11px] font-medium text-gray-400 mt-2">
-                            <span>
-                              Key ID: ...{auth.credentialId.slice(-8)}
-                            </span>
-                            <span>Sign Counter: {auth.counter}</span>
+                          {/* CLEANED UP TELEMETRY - CLOUD BACKED UP STATUS ONLY */}
+                          <div className="flex gap-3 text-[11px] font-medium mt-2">
                             {auth.backedUp && (
                               <span className="text-emerald-600 font-bold">
                                 ✓ Cloud Backed Up
@@ -388,13 +381,34 @@ function Dashboard({ user }) {
                         </div>
                       </div>
 
-                      <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100">
-                        <div className="text-left sm:text-right hidden md:block mb-2">
-                          <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">
-                            Created
+                      {/* UPDATED: ACTIONS & LIVE AUDIT DRAWER PACK WITH CLICKABLE LOCATION */}
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100 min-w-[140px]">
+                        <div className="text-left sm:text-right hidden md:block mb-3">
+                          <p className="text-[10px] uppercase tracking-wider text-indigo-500 font-bold mb-0.5">
+                            Last Used
                           </p>
-                          <p className="text-xs font-semibold text-gray-700">
-                            {formatDate(auth.createdAt)}
+                          <p className="text-sm font-semibold text-gray-700">
+                            {timeAgo(auth.lastUsedAt)}
+                          </p>
+
+                          {/* NEW: CLICKABLE LOCATION LINK */}
+                          {auth.location && (
+                            <a
+                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(auth.location)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-medium text-gray-500 hover:text-indigo-600 mt-0.5 flex items-center justify-start sm:justify-end gap-1 transition-colors group"
+                              title="View on Google Maps"
+                            >
+                              <span>📍</span>{" "}
+                              <span className="group-hover:underline">
+                                {auth.location}
+                              </span>
+                            </a>
+                          )}
+
+                          <p className="text-[10px] text-gray-400 mt-1">
+                            Added {formatDate(auth.createdAt)}
                           </p>
                         </div>
 
@@ -413,25 +427,6 @@ function Dashboard({ user }) {
                 })}
               </div>
             )}
-          </div>
-        </div>
-
-        {/* --- ADDED: DEVELOPER TOOLS --- */}
-        <div className="mt-12 pt-8 border-t border-gray-200">
-          <div className="bg-red-50 p-6 rounded-xl border border-red-200">
-            <h3 className="text-red-800 font-bold text-lg mb-2">
-              Developer Tools
-            </h3>
-            <p className="text-red-600 text-sm mb-4">
-              Use this to reset the testing environment. This will permanently
-              delete all users and passkeys from the PostgreSQL database.
-            </p>
-            <button
-              onClick={handleWipeDatabase}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
-            >
-              ☢️ Wipe Entire Database
-            </button>
           </div>
         </div>
       </div>

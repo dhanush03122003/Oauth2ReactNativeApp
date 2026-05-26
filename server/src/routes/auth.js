@@ -8,6 +8,7 @@ import {
 // MISSING PATH ADDED: Required for the isoBase64URL.toBuffer conversion
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import { SignJWT, jwtVerify } from "jose";
+import geoip from "geoip-lite";
 
 import {
   findUserByUsername,
@@ -22,6 +23,7 @@ import {
   deleteAuthenticatorById,
   updateAuthenticatorNickname,
   wipeAllData,
+  logAuthEvent,
 } from "../db.js";
 
 const router = express.Router();
@@ -49,7 +51,7 @@ router.get("/generate-registration-options", async (req, res) => {
       rpID: RP_ID,
       userID: encoder.encode(user.id),
       userName: user.username,
-      attestationType: "none",
+      attestationType: "direct",
       excludeCredentials: userPasskeys.map((pk) => ({
         id: pk.credential_id,
         transports: pk.transports,
@@ -318,7 +320,37 @@ router.post("/verify-authentication", async (req, res) => {
         passkey.credential_id,
         authenticationInfo.newCounter,
       );
+      // --- NEW: LOG THE SESSION EVENT ---
+      const ip =
+        req.headers["x-forwarded-for"] ||
+        req.socket.remoteAddress ||
+        "Unknown IP";
+      if (ip.includes(",")) {
+        ip = ip.split(",")[0].trim();
+      }
 
+      // 2. Lookup the location
+      let locationString = "Unknown Location";
+      const geo = geoip.lookup(ip);
+
+      if (geo) {
+        // Formats as "City, Region, Country" (e.g., "San Francisco, CA, US")
+        locationString = [geo.city, geo.region, geo.country]
+          .filter(Boolean) // Removes empty values if a specific piece of data is missing
+          .join(", ");
+      } else if (ip === "::1" || ip === "127.0.0.1") {
+        locationString = "Local Development (Localhost)";
+      }
+
+      // 3. Extract User Agent
+      const userAgent = req.headers["user-agent"] || "Unknown Browser";
+      await logAuthEvent(
+        user.id,
+        passkey.credential_id,
+        ip,
+        userAgent,
+        locationString,
+      );
       // Clean up challenges
       await clearUserChallenge(user.id);
       res.clearCookie("auth_challenge");
@@ -377,7 +409,8 @@ router.get("/generate-additional-device-options", async (req, res) => {
       rpID: RP_ID,
       userID: encoder.encode(user.id),
       userName: user.username,
-      attestationType: "none",
+      attestationType: "direct",
+
       excludeCredentials: userPasskeys.map((pk) => ({
         id: pk.credential_id,
         type: "public-key",
@@ -398,6 +431,38 @@ router.get("/generate-additional-device-options", async (req, res) => {
   }
 });
 
+// router.get("/me", async (req, res) => {
+//   const authHeader = req.headers.authorization;
+//   if (!authHeader?.startsWith("Bearer "))
+//     return res.status(401).json({ error: "Unauthorized" });
+
+//   const token = authHeader.split(" ")[1];
+//   try {
+//     const { payload } = await jwtVerify(token, JWT_SECRET);
+//     const user = await findUserById(payload.userId);
+//     const authenticators = await getAuthenticatorsForUser(user.id);
+
+//     res.json({
+//       user: { id: user.id, username: user.username },
+//       authenticators: authenticators.map((auth) => ({
+//         id: auth.id,
+//         credentialId: auth.credential_id,
+//         counter: auth.counter,
+//         createdAt: auth.created_at,
+//         // --- ADD THESE NEW FIELDS ---
+//         attachmentType: auth.attachment_type, // 'platform' or 'cross-platform'
+//         deviceType: auth.device_type, // 'singleDevice' or 'multiDevice'
+//         backedUp: auth.backed_up, // true/false
+//         aaguid: auth.aaguid,
+//         nickname: auth.nickname,
+//         lastUsedAt: auth.last_used_at,
+//       })),
+//     });
+//   } catch {
+//     res.status(401).json({ error: "Invalid token" });
+//   }
+// });
+
 router.get("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer "))
@@ -407,6 +472,11 @@ router.get("/me", async (req, res) => {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const user = await findUserById(payload.userId);
+
+    if (!user) {
+      return res.status(404).json({ error: "User no longer exists" });
+    }
+
     const authenticators = await getAuthenticatorsForUser(user.id);
 
     res.json({
@@ -416,19 +486,21 @@ router.get("/me", async (req, res) => {
         credentialId: auth.credential_id,
         counter: auth.counter,
         createdAt: auth.created_at,
-        // --- ADD THESE NEW FIELDS ---
-        attachmentType: auth.attachment_type, // 'platform' or 'cross-platform'
-        deviceType: auth.device_type, // 'singleDevice' or 'multiDevice'
-        backedUp: auth.backed_up, // true/false
+        attachmentType: auth.attachment_type,
+        deviceType: auth.device_type,
+        backedUp: auth.backed_up,
         aaguid: auth.aaguid,
         nickname: auth.nickname,
+        lastUsedAt: auth.last_used_at,
+        // --- MAP THE NEW LOCATION FIELD HERE ---
+        location: auth.last_location || "Unknown Location",
       })),
     });
-  } catch {
+  } catch (error) {
+    console.error("GET /me Error:", error.message);
     res.status(401).json({ error: "Invalid token" });
   }
 });
-
 // router file (e.g., auth.js)
 
 // --- 1. Delete Endpoint with "At Least One Key" safety guard ---
@@ -508,6 +580,7 @@ router.get("/generate-conditional-options", async (req, res) => {
       // This tells the browser to search its internal storage for ANY key matching this RP_ID
       allowCredentials: [],
       userVerification: "preferred",
+      // attestationType: "direct",
     });
 
     // NOTE: Because we don't know who the user is yet, we cannot save the challenge
