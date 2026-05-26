@@ -320,11 +320,14 @@ router.post("/verify-authentication", async (req, res) => {
         passkey.credential_id,
         authenticationInfo.newCounter,
       );
+
       // --- NEW: LOG THE SESSION EVENT ---
-      const ip =
+      // FIX: Changed 'const' to 'let' so it can be reassigned!
+      let ip =
         req.headers["x-forwarded-for"] ||
         req.socket.remoteAddress ||
         "Unknown IP";
+
       if (ip.includes(",")) {
         ip = ip.split(",")[0].trim();
       }
@@ -351,6 +354,7 @@ router.post("/verify-authentication", async (req, res) => {
         userAgent,
         locationString,
       );
+
       // Clean up challenges
       await clearUserChallenge(user.id);
       res.clearCookie("auth_challenge");

@@ -23,5 +23,7 @@ yarn-error.log*
 
 # --- ALLOW ENV FILES ---
 # Un-ignoring environment variable configs per your project setup rules
-!*.env
-!*.env.local
+
+
+*.env
+*.env.local
