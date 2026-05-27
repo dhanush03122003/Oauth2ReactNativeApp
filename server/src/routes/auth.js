@@ -5,7 +5,6 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server";
-// MISSING PATH ADDED: Required for the isoBase64URL.toBuffer conversion
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import { SignJWT, jwtVerify } from "jose";
 import geoip from "geoip-lite";
@@ -22,7 +21,6 @@ import {
   updateAuthenticatorCounter,
   deleteAuthenticatorById,
   updateAuthenticatorNickname,
-  wipeAllData,
   logAuthEvent,
 } from "../db.js";
 
@@ -33,8 +31,6 @@ const JWT_SECRET = encoder.encode(process.env.JWT_SECRET || "default-secret");
 const RP_ID = process.env.RP_ID || "localhost";
 const RP_NAME = process.env.RP_NAME || "WebAuthn App";
 const RP_ORIGIN = process.env.RP_ORIGIN || "http://localhost:5173";
-
-// --- Registration ---
 
 router.get("/generate-registration-options", async (req, res) => {
   const { username } = req.query;
@@ -69,63 +65,7 @@ router.get("/generate-registration-options", async (req, res) => {
   }
 });
 
-// router.post("/verify-registration", async (req, res) => {
-//   const { username, verification } = req.body;
-//   try {
-//     const user = await findUserByUsername(username);
-//     if (!user?.current_challenge) throw new Error("No challenge found");
-
-//     const verificationResult = await verifyRegistrationResponse({
-//       response: verification,
-//       expectedChallenge: user.current_challenge,
-//       expectedOrigin: RP_ORIGIN,
-//       expectedRPID: RP_ID,
-//       requireUserVerification: false,
-//     });
-
-//     if (verificationResult.verified) {
-//       const { registrationInfo } = verificationResult;
-//       const { credential, credentialDeviceType, credentialBackedUp } =
-//         registrationInfo;
-
-//       await saveAuthenticator(user.id, {
-//         credentialID: credential.id,
-//         publicKey: Buffer.from(credential.publicKey),
-//         counter: credential.counter,
-//         transports: credential.transports || ["internal"],
-//         deviceType: credentialDeviceType,
-//         backedUp: credentialBackedUp,
-//       });
-
-//       await clearUserChallenge(user.id);
-
-//       const token = await new SignJWT({
-//         userId: user.id,
-//         username: user.username,
-//       })
-//         .setProtectedHeader({ alg: "HS256" })
-//         .setIssuedAt()
-//         .setExpirationTime("1d")
-//         .sign(JWT_SECRET);
-
-//       return res.json({
-//         success: true,
-//         token,
-//         user: { id: user.id, username: user.username },
-//       });
-//     }
-//     res.status(400).json({ error: "Registration verification failed" });
-//   } catch (error) {
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// --- Authentication ---
-
-// router file (e.g., auth.js)
-
 router.post("/verify-registration", async (req, res) => {
-  // Add 'nickname' to the destructured body parameters
   const { username, verification, nickname } = req.body;
   try {
     const user = await findUserByUsername(username);
@@ -157,8 +97,38 @@ router.post("/verify-registration", async (req, res) => {
         backedUp: credentialBackedUp,
         aaguid: aaguid,
         attachmentType: attachmentType,
-        nickname: nickname || "Unnamed Passkey", // <-- Fallback default name
+        nickname: nickname || "Unnamed Passkey",
       });
+
+      let ip =
+        req.headers["x-forwarded-for"] ||
+        req.socket.remoteAddress ||
+        "Unknown IP";
+      if (ip.includes(",")) {
+        ip = ip.split(",")[0].trim();
+      }
+
+      let locationString = "Unknown Location";
+      const geo = geoip.lookup(ip);
+
+      if (geo) {
+        locationString = [geo.city, geo.region, geo.country]
+          .filter(Boolean)
+          .join(", ");
+      } else if (ip === "::1" || ip === "127.0.0.1") {
+        locationString = "Local Development (Localhost)";
+      }
+
+      const userAgent = req.headers["user-agent"] || "Unknown Browser";
+
+      await logAuthEvent(
+        user.id,
+        credential.id,
+        ip,
+        userAgent,
+        locationString,
+        "CREATED",
+      );
 
       await clearUserChallenge(user.id);
 
@@ -181,6 +151,7 @@ router.post("/verify-registration", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 router.get("/generate-authentication-options", async (req, res) => {
   const { username } = req.query;
   try {
@@ -206,98 +177,31 @@ router.get("/generate-authentication-options", async (req, res) => {
   }
 });
 
-// router.post("/verify-authentication", async (req, res) => {
-//   const { username, verification } = req.body;
-//   try {
-//     const user = await findUserByUsername(username);
-//     const passkey = await findAuthenticatorByCredentialId(verification.id);
-
-//     if (!user || !passkey) {
-//       return res.status(400).json({ error: "User or Passkey not found" });
-//     }
-
-//     const verificationResult = await verifyAuthenticationResponse({
-//       response: verification,
-//       expectedChallenge: user.current_challenge,
-//       expectedOrigin: RP_ORIGIN,
-//       expectedRPID: RP_ID,
-//       credential: {
-//         id: passkey.credential_id,
-//         // Using the newly imported isoBase64URL helper here:
-//         credentialID: isoBase64URL.toBuffer(passkey.credential_id),
-//         publicKey: new Uint8Array(passkey.public_key),
-//         counter: Number(passkey.counter),
-//         transports: passkey.transports,
-//       },
-//       requireUserVerification: false,
-//     });
-
-//     if (verificationResult.verified) {
-//       const { authenticationInfo } = verificationResult;
-
-//       await updateAuthenticatorCounter(
-//         passkey.credential_id,
-//         authenticationInfo.newCounter,
-//       );
-//       console.log("new counter ", authenticationInfo.newCounter);
-
-//       await clearUserChallenge(user.id);
-
-//       const token = await new SignJWT({
-//         userId: user.id,
-//         username: user.username,
-//       })
-//         .setProtectedHeader({ alg: "HS256" })
-//         .setIssuedAt()
-//         .setExpirationTime("1d")
-//         .sign(JWT_SECRET);
-
-//       return res.json({
-//         success: true,
-//         token,
-//         user: { id: user.id, username: user.username },
-//       });
-//     }
-//     res.status(400).json({ error: "Authentication failed" });
-//   } catch (error) {
-//     console.error("Auth Error:", error);
-//     res.status(500).json({ error: error.message });
-//   }
-// });
-
-// --- Profile & Token Utility ---
-
 router.post("/verify-authentication", async (req, res) => {
   const { username, verification } = req.body;
   try {
     let user;
     let expectedChallenge;
 
-    // --- UPDATED LOGIC HERE ---
     if (username) {
-      // 1. Manual Login Path: If the frontend sent a username, use the database challenge
       user = await findUserByUsername(username);
       expectedChallenge = user?.current_challenge;
     } else if (req.cookies?.auth_challenge) {
-      // 2. Conditional UI Path: No username sent, so rely on the secure cookie
       expectedChallenge = req.cookies.auth_challenge;
     }
 
     if (!expectedChallenge)
       throw new Error("No active authentication challenge found.");
 
-    // 2. Identify the passkey used from the incoming verification ID
     const passkey = await findAuthenticatorByCredentialId(verification.id);
     if (!passkey)
       return res.status(400).json({ error: "Passkey not recognized." });
 
-    // 3. Identify the user if we haven't already (Conditional UI mode)
     if (!user) {
       user = await findUserById(passkey.user_id);
     }
     if (!user) return res.status(400).json({ error: "User not found." });
 
-    // 4. Verify the cryptographic signature
     const verificationResult = await verifyAuthenticationResponse({
       response: verification,
       expectedChallenge: expectedChallenge,
@@ -314,15 +218,13 @@ router.post("/verify-authentication", async (req, res) => {
     });
 
     if (verificationResult.verified) {
-      const { authenticationInfo } = verificationResult;
+      const manuallyIncrementedCounter = Number(passkey.counter) + 1;
 
       await updateAuthenticatorCounter(
         passkey.credential_id,
-        authenticationInfo.newCounter,
+        manuallyIncrementedCounter,
       );
 
-      // --- NEW: LOG THE SESSION EVENT ---
-      // FIX: Changed 'const' to 'let' so it can be reassigned!
       let ip =
         req.headers["x-forwarded-for"] ||
         req.socket.remoteAddress ||
@@ -332,30 +234,28 @@ router.post("/verify-authentication", async (req, res) => {
         ip = ip.split(",")[0].trim();
       }
 
-      // 2. Lookup the location
       let locationString = "Unknown Location";
       const geo = geoip.lookup(ip);
 
       if (geo) {
-        // Formats as "City, Region, Country" (e.g., "San Francisco, CA, US")
         locationString = [geo.city, geo.region, geo.country]
-          .filter(Boolean) // Removes empty values if a specific piece of data is missing
+          .filter(Boolean)
           .join(", ");
       } else if (ip === "::1" || ip === "127.0.0.1") {
         locationString = "Local Development (Localhost)";
       }
 
-      // 3. Extract User Agent
       const userAgent = req.headers["user-agent"] || "Unknown Browser";
+
       await logAuthEvent(
         user.id,
         passkey.credential_id,
         ip,
         userAgent,
         locationString,
+        "LOGIN",
       );
 
-      // Clean up challenges
       await clearUserChallenge(user.id);
       res.clearCookie("auth_challenge");
 
@@ -380,6 +280,7 @@ router.post("/verify-authentication", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
 router.post("/verify-token", async (req, res) => {
   const { token } = req.body;
   try {
@@ -399,22 +300,18 @@ router.get("/generate-additional-device-options", async (req, res) => {
 
   const token = authHeader.split(" ")[1];
   try {
-    // 1. Identify the logged-in user from their JWT
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const user = await findUserById(payload.userId);
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    // 2. Fetch their existing keys to avoid duplicates
     const userPasskeys = await getAuthenticatorsForUser(user.id);
 
-    // 3. Generate registration options with exclusions
     const options = await generateRegistrationOptions({
       rpName: RP_NAME,
       rpID: RP_ID,
       userID: encoder.encode(user.id),
       userName: user.username,
       attestationType: "direct",
-
       excludeCredentials: userPasskeys.map((pk) => ({
         id: pk.credential_id,
         type: "public-key",
@@ -426,7 +323,6 @@ router.get("/generate-additional-device-options", async (req, res) => {
       },
     });
 
-    // 4. Save the new challenge to their user account
     await updateUserChallenge(user.id, options.challenge);
 
     res.json(options);
@@ -434,38 +330,6 @@ router.get("/generate-additional-device-options", async (req, res) => {
     res.status(401).json({ error: "Invalid token or session expired" });
   }
 });
-
-// router.get("/me", async (req, res) => {
-//   const authHeader = req.headers.authorization;
-//   if (!authHeader?.startsWith("Bearer "))
-//     return res.status(401).json({ error: "Unauthorized" });
-
-//   const token = authHeader.split(" ")[1];
-//   try {
-//     const { payload } = await jwtVerify(token, JWT_SECRET);
-//     const user = await findUserById(payload.userId);
-//     const authenticators = await getAuthenticatorsForUser(user.id);
-
-//     res.json({
-//       user: { id: user.id, username: user.username },
-//       authenticators: authenticators.map((auth) => ({
-//         id: auth.id,
-//         credentialId: auth.credential_id,
-//         counter: auth.counter,
-//         createdAt: auth.created_at,
-//         // --- ADD THESE NEW FIELDS ---
-//         attachmentType: auth.attachment_type, // 'platform' or 'cross-platform'
-//         deviceType: auth.device_type, // 'singleDevice' or 'multiDevice'
-//         backedUp: auth.backed_up, // true/false
-//         aaguid: auth.aaguid,
-//         nickname: auth.nickname,
-//         lastUsedAt: auth.last_used_at,
-//       })),
-//     });
-//   } catch {
-//     res.status(401).json({ error: "Invalid token" });
-//   }
-// });
 
 router.get("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
@@ -496,7 +360,6 @@ router.get("/me", async (req, res) => {
         aaguid: auth.aaguid,
         nickname: auth.nickname,
         lastUsedAt: auth.last_used_at,
-        // --- MAP THE NEW LOCATION FIELD HERE ---
         location: auth.last_location || "Unknown Location",
       })),
     });
@@ -505,9 +368,7 @@ router.get("/me", async (req, res) => {
     res.status(401).json({ error: "Invalid token" });
   }
 });
-// router file (e.g., auth.js)
 
-// --- 1. Delete Endpoint with "At Least One Key" safety guard ---
 router.delete("/authenticator/:id", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer "))
@@ -519,8 +380,13 @@ router.delete("/authenticator/:id", async (req, res) => {
     const userId = payload.userId;
     const authId = req.params.id;
 
-    // Fetch all keys to ensure we aren't deleting the absolute last one
     const userPasskeys = await getAuthenticatorsForUser(userId);
+    const keyToDelete = userPasskeys.find((pk) => pk.id === authId);
+
+    if (!keyToDelete) {
+      return res.status(404).json({ error: "Authenticator not found." });
+    }
+
     if (userPasskeys.length <= 1) {
       return res.status(400).json({
         error:
@@ -529,7 +395,38 @@ router.delete("/authenticator/:id", async (req, res) => {
     }
 
     const success = await deleteAuthenticatorById(authId, userId);
+
     if (success) {
+      let ip =
+        req.headers["x-forwarded-for"] ||
+        req.socket.remoteAddress ||
+        "Unknown IP";
+      if (ip.includes(",")) {
+        ip = ip.split(",")[0].trim();
+      }
+
+      let locationString = "Unknown Location";
+      const geo = geoip.lookup(ip);
+
+      if (geo) {
+        locationString = [geo.city, geo.region, geo.country]
+          .filter(Boolean)
+          .join(", ");
+      } else if (ip === "::1" || ip === "127.0.0.1") {
+        locationString = "Local Development (Localhost)";
+      }
+
+      const userAgent = req.headers["user-agent"] || "Unknown Browser";
+
+      await logAuthEvent(
+        userId,
+        keyToDelete.credential_id,
+        ip,
+        userAgent,
+        locationString,
+        "DELETED",
+      );
+
       return res.json({
         success: true,
         message: "Authenticator removed successfully.",
@@ -541,7 +438,6 @@ router.delete("/authenticator/:id", async (req, res) => {
   }
 });
 
-// --- 2. Edit Nickname Endpoint ---
 router.put("/authenticator/:id/nickname", async (req, res) => {
   const { nickname } = req.body;
   if (!nickname || !nickname.trim())
@@ -573,28 +469,20 @@ router.put("/authenticator/:id/nickname", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-// router file (e.g., auth.js)
 
-// --- NEW: Generate Generic Options for Conditional UI Autofill ---
 router.get("/generate-conditional-options", async (req, res) => {
   try {
     const options = await generateAuthenticationOptions({
       rpID: RP_ID,
-      // Leave allowCredentials empty or undefined!
-      // This tells the browser to search its internal storage for ANY key matching this RP_ID
       allowCredentials: [],
       userVerification: "preferred",
-      // attestationType: "direct",
     });
 
-    // NOTE: Because we don't know who the user is yet, we cannot save the challenge
-    // against a specific user row in the DB. Instead, we save it to a short-lived,
-    // secure HttpOnly cookie so we can verify it when they respond.
     res.cookie("auth_challenge", options.challenge, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // true in production over HTTPS
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60000, // 1 minute timeout
+      maxAge: 60000,
     });
 
     res.json(options);
@@ -602,13 +490,5 @@ router.get("/generate-conditional-options", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-router.post("/dev/wipe-database", async (req, res) => {
-  try {
-    await wipeAllData();
-    res.json({ success: true, message: "All records have been destroyed." });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 export default router;
+

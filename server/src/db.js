@@ -39,7 +39,7 @@ export const initializeDatabase = async () => {
       );
     `);
 
-    // --- NEW: AUDIT LOGS TABLE ---
+    // --- UPDATED: AUDIT LOGS TABLE NOW HAS action_type ---
     await client.query(`
       CREATE TABLE IF NOT EXISTS audit_logs (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -48,6 +48,7 @@ export const initializeDatabase = async () => {
         ip_address TEXT,
         location TEXT,
         user_agent TEXT,
+        action_type VARCHAR(50), -- <-- NEW COLUMN
         login_time TIMESTAMP DEFAULT timezone('Asia/Kolkata', now())
       );
     `);
@@ -61,29 +62,33 @@ export const initializeDatabase = async () => {
   }
 };
 
-// db.js -> Update logAuthEvent function
+// --- UPDATED: logAuthEvent NOW ACCEPTS actionType ---
 export const logAuthEvent = async (
   userId,
   credentialId,
   ipAddress,
   userAgent,
   location,
+  actionType,
 ) => {
   // 1. Insert into the permanent audit log
   await pool.query(
-    `INSERT INTO audit_logs (user_id, credential_id, ip_address, location, user_agent, login_time) 
-     VALUES ($1, $2, $3, $4, $5, timezone('Asia/Kolkata', now()))`,
-    [userId, credentialId, ipAddress, location, userAgent], // <-- Added location
+    `INSERT INTO audit_logs (user_id, credential_id, ip_address, location, user_agent, action_type, login_time) 
+     VALUES ($1, $2, $3, $4, $5, $6, timezone('Asia/Kolkata', now()))`,
+    [userId, credentialId, ipAddress, location, userAgent, actionType],
   );
 
-  // 2. Update the "last used" timestamp on the authenticator itself
-  await pool.query(
-    `UPDATE authenticators 
-     SET last_used_at = timezone('Asia/Kolkata', now()) 
-     WHERE credential_id = $1`,
-    [credentialId],
-  );
+  // 2. Only update the "last used" timestamp if this was a login or creation
+  if (actionType !== "DELETED") {
+    await pool.query(
+      `UPDATE authenticators 
+       SET last_used_at = timezone('Asia/Kolkata', now()) 
+       WHERE credential_id = $1`,
+      [credentialId],
+    );
+  }
 };
+
 export const findUserByUsername = async (username) => {
   const result = await pool.query("SELECT * FROM users WHERE username = $1", [
     username,
@@ -131,6 +136,7 @@ export const getAuthenticatorsForUser = async (userId) => {
   );
   return result.rows;
 };
+
 // Update saveAuthenticator to accept nickname and force last_used_at to IST
 export const saveAuthenticator = async (userId, credential) => {
   const {
@@ -203,18 +209,3 @@ export const findAuthenticatorByCredentialId = async (credentialId) => {
   return result.rows[0];
 };
 
-export const wipeAllData = async () => {
-  const client = await pool.connect();
-  try {
-    // Also clearing audit_logs to ensure a clean wipe
-    await client.query(
-      "TRUNCATE TABLE users, authenticators, audit_logs RESTART IDENTITY CASCADE;",
-    );
-    console.log("Database wiped successfully.");
-  } catch (error) {
-    console.error("Error wiping database:", error);
-    throw error;
-  } finally {
-    client.release();
-  }
-};

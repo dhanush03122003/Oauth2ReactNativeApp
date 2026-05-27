@@ -155,38 +155,61 @@ webauthn-app/
 
 ### authenticators table
 
-| Column        | Type      | Description                                      |
-| ------------- | --------- | ------------------------------------------------ |
-| id            | UUID      | Primary key                                      |
-| credential_id | TEXT      | Unique credential identifier                     |
-| public_key    | BYTEA     | Stored public key for verification               |
-| counter       | INTEGER   | Usage counter (replay attack prevention)         |
-| user_id       | UUID      | Foreign key to users                             |
-| transports    | TEXT[]    | Device transport types (usb, nfc, ble, internal) |
-| created_at    | TIMESTAMP | Registration time                                |
+| Column          | Type         | Description                                      |
+| --------------- | ------------ | ------------------------------------------------ |
+| id              | UUID         | Primary key                                      |
+| credential_id   | TEXT         | Unique credential identifier                     |
+| public_key      | BYTEA        | Stored public key for verification               |
+| counter         | INTEGER      | Usage counter (replay attack prevention)         |
+| user_id         | UUID         | Foreign key to users                             |
+| transports      | TEXT[]       | Device transport types (usb, nfc, ble, internal) |
+| aaguid          | TEXT         | Authenticator Attestation GUID                   |
+| device_type     | TEXT         | Platform or cross-platform indicator             |
+| backed_up       | BOOLEAN      | Whether the credential is backed up (syncable)   |
+| attachment_type | TEXT         | The way the authenticator is attached            |
+| nickname        | VARCHAR(255) | User-defined name for the device                 |
+| last_used_at    | TIMESTAMP    | When the credential was last used for auth       |
+| created_at      | TIMESTAMP    | Registration time                                |
+
+### audit_logs table
+
+| Column        | Type         | Description                                    |
+| ------------- | ------------ | ---------------------------------------------- |
+| id            | UUID         | Primary key                                    |
+| user_id       | UUID         | Foreign key to users                           |
+| credential_id | TEXT         | Used credential identifier                     |
+| ip_address    | TEXT         | User's IP address during the action            |
+| location      | TEXT         | GeoIP derived location                         |
+| user_agent    | TEXT         | Browser user agent string                      |
+| action_type   | VARCHAR(50)  | Action performed (e.g. LOGIN, CREATED, DELETED)|
+| login_time    | TIMESTAMP    | Time of the action                             |
 
 ## API Endpoints
 
 ### Registration
 
-| Method | Endpoint                                                      | Description                |
-| ------ | ------------------------------------------------------------- | -------------------------- |
-| GET    | `/api/auth/generate-registration-options?username={username}` | Get registration options   |
-| POST   | `/api/auth/verify-registration`                               | Verify and save credential |
+| Method | Endpoint                                                        | Description                               |
+| ------ | --------------------------------------------------------------- | ----------------------------------------- |
+| GET    | `/api/auth/generate-registration-options?username={username}`   | Get registration options for a new user   |
+| GET    | `/api/auth/generate-additional-device-options`                  | Get registration options for extra device |
+| POST   | `/api/auth/verify-registration`                                 | Verify and save credential                |
 
 ### Authentication
 
 | Method | Endpoint                                                        | Description                      |
 | ------ | --------------------------------------------------------------- | -------------------------------- |
 | GET    | `/api/auth/generate-authentication-options?username={username}` | Get authentication options       |
+| GET    | `/api/auth/generate-conditional-options`                        | Get autofill (conditional) options|
 | POST   | `/api/auth/verify-authentication`                               | Verify assertion and issue token |
 
-### User
+### User & Device Management
 
-| Method | Endpoint                 | Description           |
-| ------ | ------------------------ | --------------------- |
-| POST   | `/api/auth/verify-token` | Verify JWT token      |
-| GET    | `/api/auth/me`           | Get current user info |
+| Method | Endpoint                                | Description                     |
+| ------ | --------------------------------------- | ------------------------------- |
+| POST   | `/api/auth/verify-token`                | Verify JWT token                |
+| GET    | `/api/auth/me`                          | Get current user info & devices |
+| DELETE | `/api/auth/authenticator/:id`           | Delete a specific device        |
+| PUT    | `/api/auth/authenticator/:id/nickname`  | Update device nickname          |
 
 ## Tech Stack
 
@@ -329,6 +352,174 @@ The dashboard shows:
 
 - Ensure PostgreSQL container is running: `docker ps`
 - Check DATABASE_URL in .env file
+
+## Production Deployment
+
+### Phase 1: Server Preparation
+Install Nginx, Certbot, and PM2:
+
+```bash
+sudo apt install nginx -y
+sudo apt install certbot python3-certbot-nginx -y
+sudo npm install -g pm2
+```
+
+### Phase 2: Database Setup
+Log into the PostgreSQL prompt:
+
+```bash
+sudo -u postgres psql
+```
+
+Create the WebAuthn user and database:
+
+```sql
+CREATE DATABASE webauthn;
+CREATE USER webauthn WITH ENCRYPTED PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE webauthn TO webauthn;
+\c webauthn
+GRANT ALL ON SCHEMA public TO webauthn;
+\q
+```
+
+### Phase 3: Application Setup
+Clone/upload your repository to the server (e.g., in `/var/www/webauthn-backend` or `/home/ubuntu/webauthn`).
+
+Install dependencies:
+
+```bash
+cd /path/to/your/backend
+npm install
+```
+*(Ensure you have installed `cors` and `geoip-lite` as required by the backend logic).*
+
+Create the `.env` file:
+
+```bash
+nano .env
+```
+Paste your sanitized configuration (replace placeholders with your actual Server IP and DB details):
+
+```env
+PORT=3000
+
+# Database Configuration
+DB_USER=webauthn
+DB_PASSWORD=your_secure_password
+DB_NAME=webauthn
+DB_HOST=localhost
+DB_PORT=5432
+DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+
+# Security
+JWT_SECRET=your_super_secure_random_string
+
+# WebAuthn Configuration (Replace 168.144.113.245 with your Server IP)
+RP_ID=168.144.113.245.nip.io
+RP_NAME="WebAuthn App"
+RP_ORIGIN=https://168.144.113.245.nip.io
+```
+
+### Phase 4: Nginx & HTTPS Configuration
+We use Nginx to catch all traffic, enforce HTTPS, and securely proxy requests to Node.js while passing the user's real IP address for our GeoIP audit logs.
+
+Create the Nginx configuration file:
+
+```bash
+sudo nano /etc/nginx/sites-available/webauthn
+```
+Paste the following configuration (Ensure you replace `168.144.113.245` with your actual Server IP):
+
+```nginx
+# --- BLOCK 1: THE HTTP CATCHER (PORT 80) ---
+server {
+    listen 80;
+    server_name 168.144.113.245.nip.io;
+    
+    # Force redirect to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+# --- BLOCK 2: THE SECURE SERVER (PORT 443) ---
+server {
+    listen 443 ssl;
+    server_name 168.144.113.245.nip.io;
+
+    # Note: Certbot will automatically inject SSL certificates here later.
+
+    # Enforce HTTPS strictly
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Route /api traffic to the Node.js backend
+    location /api/ {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        
+        # CRITICAL: Pass real IPs for audit logs (geoip-lite)
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Enable the site and verify Nginx syntax:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/webauthn /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+```
+
+Generate the free SSL Certificate via Certbot:
+
+```bash
+sudo certbot --nginx -d 168.144.113.245.nip.io
+```
+*(Follow the prompts. Certbot will automatically update your Nginx config to include the certificates).*
+
+### Phase 5: Security Firewall (UFW)
+Lock down the server so nobody can bypass Nginx and access the Node API directly.
+
+```bash
+# Allow SSH access so you do not lock yourself out!
+sudo ufw allow OpenSSH
+
+# Allow Nginx to handle public HTTP/HTTPS traffic
+sudo ufw allow 'Nginx Full'
+
+# Block external access to the Node.js port
+sudo ufw deny 3000
+
+# Enable the firewall
+sudo ufw enable
+```
+
+### Phase 6: Process Management & Persistence (PM2)
+Keep the Node.js app running forever and ensure it starts automatically if the server reboots.
+
+Start the backend application:
+
+```bash
+cd /path/to/your/backend
+pm2 start server.js --name "webauthn-backend"
+```
+
+Generate the startup script:
+
+```bash
+pm2 startup
+```
+*Execute the generated command: Copy the exact `sudo env PATH...` command output from the previous step, paste it into the terminal, and press Enter.*
+
+Save the PM2 process list:
+
+```bash
+pm2 save
+```
 
 ## License
 
