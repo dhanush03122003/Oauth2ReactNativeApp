@@ -60,13 +60,13 @@ function Dashboard({ user }) {
         "/api/auth/generate-additional-device-options",
         {
           headers: { Authorization: `Bearer ${token}` },
-        },
+        }
       );
 
       if (!optionsResponse.ok) {
         const errorData = await optionsResponse.json();
         throw new Error(
-          errorData.error || "Failed to generate registration options.",
+          errorData.error || "Failed to generate registration options."
         );
       }
 
@@ -91,11 +91,10 @@ function Dashboard({ user }) {
       const verifyData = await verifyResponse.json();
 
       if (verifyData.success) {
-        alert("Success! Your device has been added.");
         await fetchAuthenticators();
       } else {
         throw new Error(
-          verifyData.error || "Verification on backend rejected key.",
+          verifyData.error || "Verification on backend rejected key."
         );
       }
     } catch (error) {
@@ -113,7 +112,7 @@ function Dashboard({ user }) {
   const handleEditNickname = async (authId, currentNickname) => {
     const newName = prompt(
       `Edit the nickname for this device:`,
-      currentNickname,
+      currentNickname
     );
     if (newName === null || newName.trim() === currentNickname) return;
 
@@ -128,7 +127,7 @@ function Dashboard({ user }) {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ nickname: newName }),
-        },
+        }
       );
 
       const data = await response.json();
@@ -145,13 +144,15 @@ function Dashboard({ user }) {
   const handleDeleteAuthenticator = async (authId, nickname) => {
     if (authenticators.length <= 1) {
       alert(
-        "Security Block: You cannot delete this device. You must have at least one authentication method active to prevent account lockout.",
+        "Security Block: You cannot delete this device. You must have at least one authentication method active to prevent account lockout."
       );
       return;
     }
 
     const confirmWipe = window.confirm(
-      `Are you absolutely sure you want to delete "${nickname || "this device"}"? You will no longer be able to log in with this physical device.`,
+      `Are you absolutely sure you want to delete "${
+        nickname || "this device"
+      }"? You will no longer be able to log in with this physical device.`
     );
     if (!confirmWipe) return;
 
@@ -164,7 +165,6 @@ function Dashboard({ user }) {
 
       const data = await response.json();
       if (response.ok) {
-        alert("Device completely removed.");
         await fetchAuthenticators();
       } else {
         alert(data.error || "Failed to remove device.");
@@ -218,34 +218,18 @@ function Dashboard({ user }) {
     };
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return "Unknown date";
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  };
-
-  // --- TIME-AGO UTILITY FOR AUTH ACTIVITY TRACKING ---
   const timeAgo = (dateString) => {
     if (!dateString) return "Never used";
-
     const date = new Date(dateString);
     const now = new Date();
     const seconds = Math.floor((now - date) / 1000);
-
     if (seconds < 60) return "Just now";
-
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes} minute${minutes !== 1 ? "s" : ""} ago`;
-
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours} hour${hours !== 1 ? "s" : ""} ago`;
-
     const days = Math.floor(hours / 24);
     if (days < 30) return `${days} day${days !== 1 ? "s" : ""} ago`;
-
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -254,181 +238,121 @@ function Dashboard({ user }) {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] py-12 px-4 bg-gray-50">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="min-h-[calc(100vh-4rem)] p-4 sm:p-8">
+      <div className="max-w-5xl mx-auto space-y-8">
+        
+        <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
-              Security Dashboard
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+              Security Details
             </h1>
-            <p className="mt-2 text-gray-600">
-              Review your registered secure credentials
+            <p className="mt-1 text-sm text-gray-500">
+              Manage your passkeys and active authentication methods.
             </p>
           </div>
-
           <button
             onClick={handleRegisterNewDevice}
             disabled={registering || loading}
-            className="inline-flex items-center justify-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold rounded-xl shadow-sm transition-colors cursor-pointer"
+            className="btn-primary"
           >
-            {registering
-              ? "Configuring Device..."
-              : "➕ Add Passkey / Security Key"}
+            {registering ? "Adding..." : "+ Add Passkey"}
           </button>
-        </div>
+        </header>
 
-        <div className="grid gap-6">
-          {/* User Profile Card */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex items-center space-x-4">
-              <div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                {user.username.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-gray-900">
-                  {user.username}
-                </h2>
-                <div className="flex items-center text-green-600 text-sm font-medium mt-0.5">
-                  <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                  Authenticated Passwordless Session
-                </div>
-              </div>
+        <section className="card">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Your passkeys</h2>
+              <p className="text-sm text-gray-500 mt-1">Passkeys allow you to securely log in without a password.</p>
             </div>
+            <span className="bg-gray-100 text-gray-700 text-xs font-semibold px-2 py-1 rounded">
+              {authenticators.length}
+            </span>
           </div>
 
-          {/* Device Keys Container */}
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Registered Security Keys
-              </h3>
-              <span className="px-3 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded-full">
-                {authenticators.length} Total
-              </span>
+          {loading ? (
+            <div className="flex flex-col space-y-4">
+               {/* Skeleton Loader */}
+               <div className="h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100"></div>
+               <div className="h-20 bg-gray-50 animate-pulse rounded-lg border border-gray-100"></div>
             </div>
+          ) : authenticators.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 border border-dashed border-gray-200 rounded-lg">
+              <p className="text-sm text-gray-500">No passkeys configured.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {authenticators.map((auth) => {
+                const info = getDeviceInfo(auth);
 
-            {loading ? (
-              <div className="flex justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-              </div>
-            ) : authenticators.length === 0 ? (
-              <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-xl">
-                <p className="text-gray-500 text-sm">
-                  No verification hardware configured.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {authenticators.map((auth) => {
-                  const info = getDeviceInfo(auth);
-
-                  return (
-                    <div
-                      key={auth.id}
-                      className="group flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-slate-50 transition-colors border border-gray-200 rounded-xl bg-white gap-4"
-                    >
-                      <div className="flex items-start sm:items-center space-x-4">
-                        <div className="w-12 h-12 flex-shrink-0 flex items-center justify-center bg-gray-50 rounded-lg border border-gray-100 p-2 overflow-hidden">
-                          {info.icon ? (
+                return (
+                  <div
+                    key={auth.id}
+                    className="p-5 flex flex-col justify-between border border-gray-200 rounded-xl bg-white hover:border-gray-300 transition-colors shadow-sm"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-start gap-4">
+                        <div className="w-10 h-10 bg-gray-50 border border-gray-100 rounded-lg flex items-center justify-center shrink-0">
+                           {info.icon ? (
                             <img
                               src={info.icon}
                               alt={info.hardwareName}
-                              className="w-full h-full object-contain"
+                              className="w-6 h-6 object-contain"
                             />
                           ) : (
-                            <span className="text-2xl">{info.textIcon}</span>
+                            <span className="text-lg">{info.textIcon}</span>
                           )}
                         </div>
-
                         <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-bold text-gray-900 text-base">
-                              {auth.nickname || "Unnamed Device"}
-                            </p>
-
-                            <button
-                              onClick={() =>
-                                handleEditNickname(auth.id, auth.nickname)
-                              }
-                              className="text-gray-400 hover:text-indigo-600 text-xs cursor-pointer p-1"
-                              title="Edit Nickname"
-                            >
-                              ✏️
-                            </button>
-
-                            {auth.deviceType === "multiDevice" && (
-                              <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                                Sync Passkey
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded width-max mt-0.5 inline-block">
-                            Device Model: {info.hardwareName}
+                          <h3 className="font-semibold text-gray-900 text-sm">
+                            {auth.nickname || "Unnamed Passkey"}
+                          </h3>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {info.hardwareName}
                           </p>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {info.subText}
-                          </p>
-
-                          {/* CLEANED UP TELEMETRY - CLOUD BACKED UP STATUS ONLY */}
-                          <div className="flex gap-3 text-[11px] font-medium mt-2">
-                            {auth.backedUp && (
-                              <span className="text-emerald-600 font-bold">
-                                ✓ Cloud Backed Up
-                              </span>
-                            )}
+                          <div className="flex gap-2 items-center mt-3">
+                            <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                              Last used: {timeAgo(auth.lastUsedAt)}
+                            </span>
+                            {auth.location && (
+                                <a
+                                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(auth.location)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] uppercase font-bold text-slate-500 hover:text-slate-800 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200 transition-colors inline-block"
+                                  title="View on Google Maps"
+                                >
+                                  📍 {auth.location}
+                                </a>
+                              )}
                           </div>
                         </div>
-                      </div>
-
-                      {/* UPDATED: ACTIONS & LIVE AUDIT DRAWER PACK WITH CLICKABLE LOCATION */}
-                      <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100 min-w-[140px]">
-                        <div className="text-left sm:text-right hidden md:block mb-3">
-                          <p className="text-[10px] uppercase tracking-wider text-indigo-500 font-bold mb-0.5">
-                            Last Used
-                          </p>
-                          <p className="text-sm font-semibold text-gray-700">
-                            {timeAgo(auth.lastUsedAt)}
-                          </p>
-
-                          {/* NEW: CLICKABLE LOCATION LINK */}
-                          {auth.location && (
-                            <a
-                              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(auth.location)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs font-medium text-gray-500 hover:text-indigo-600 mt-0.5 flex items-center justify-start sm:justify-end gap-1 transition-colors group"
-                              title="View on Google Maps"
-                            >
-                              <span>📍</span>{" "}
-                              <span className="group-hover:underline">
-                                {auth.location}
-                              </span>
-                            </a>
-                          )}
-
-                          <p className="text-[10px] text-gray-400 mt-1">
-                            Added {formatDate(auth.createdAt)}
-                          </p>
-                        </div>
-
-                        <button
-                          onClick={() =>
-                            handleDeleteAuthenticator(auth.id, auth.nickname)
-                          }
-                          disabled={authenticators.length <= 1}
-                          className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 disabled:bg-gray-50 disabled:text-gray-300 text-red-600 text-xs font-semibold rounded-lg border border-red-200 disabled:border-gray-200 transition-colors cursor-pointer disabled:cursor-not-allowed"
-                        >
-                          🗑️ Delete Key
-                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
+
+                    <div className="mt-5 flex gap-2 pt-4 border-t border-gray-50">
+                      <button
+                        onClick={() => handleEditNickname(auth.id, auth.nickname)}
+                        className="text-xs font-medium text-gray-600 hover:text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 px-3 py-1.5 rounded transition-colors"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        onClick={() => handleDeleteAuthenticator(auth.id, auth.nickname)}
+                        disabled={authenticators.length <= 1}
+                        className="text-xs font-medium text-red-600 hover:text-red-700 bg-white border border-gray-200 hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded transition-colors"
+                        title={authenticators.length <= 1 ? "Cannot delete the last remaining passkey." : "Delete passkey"}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
       </div>
     </div>
   );

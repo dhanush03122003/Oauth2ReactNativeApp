@@ -15,8 +15,6 @@ function Register({ onRegisterSuccess }) {
     setIsLoading(true);
 
     try {
-      // Step 1: Get registration options from server
-      // The server (v13.3.0) now returns challenge and user.id as Base64URL strings
       const optionsResponse = await fetch(
         `/api/auth/generate-registration-options?username=${encodeURIComponent(
           username,
@@ -31,10 +29,7 @@ function Register({ onRegisterSuccess }) {
       }
 
       const options = await optionsResponse.json();
-      console.log("Registration Options:", options);
 
-      // Step 2: Start registration
-      // @simplewebauthn/browser v13+ consumes the server JSON directly
       let attestation;
       try {
         attestation = await startRegistration(options);
@@ -48,9 +43,6 @@ function Register({ onRegisterSuccess }) {
         throw err;
       }
 
-      console.log("Attestation Response:", attestation);
-
-      // Step 3: Verify registration
       const verificationResponse = await fetch(
         "/api/auth/verify-registration",
         {
@@ -78,7 +70,6 @@ function Register({ onRegisterSuccess }) {
         throw new Error(result.error || "Registration failed");
       }
     } catch (err) {
-      console.error("Registration error:", err);
       setError(err.message || "An error occurred during registration");
     } finally {
       setIsLoading(false);
@@ -86,116 +77,80 @@ function Register({ onRegisterSuccess }) {
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center py-12 px-4">
-      <div className="max-w-md w-full">
-        <div className="card bg-white p-8 rounded-xl shadow-md">
-          <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
-            <p className="mt-2 text-gray-600">
-              Register with your biometric device or security key
-            </p>
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center p-4">
+      <div className="w-full max-w-[400px]">
+        
+        <div className="text-center mb-8">
+          <div className="w-12 h-12 bg-white border border-gray-200 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+            <svg
+              className="w-6 h-6 text-slate-800"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
+            </svg>
           </div>
+          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Create an account</h2>
+          <p className="mt-2 text-sm text-gray-500">Register with a biometric device or key</p>
+        </div>
 
-          <form onSubmit={handleRegister} className="space-y-6">
+        <div className="card w-full">
+          <form onSubmit={handleRegister} className="space-y-5">
             <div>
-              <label
-                htmlFor="username"
-                className="block text-sm font-medium text-gray-700 mb-2"
-              >
-                Username
+              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
+                Choose a Username
               </label>
               <input
                 id="username"
+                name="username"
                 type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                 required
                 minLength={3}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={isLoading}
+                placeholder="Ex. johndoe"
+                className="input-field"
               />
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
-                {error}
+              <div className="bg-red-50 border border-red-100 text-red-600 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                ⚠️ <span>{error}</span>
               </div>
             )}
 
             {success && (
-              <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg text-sm">
-                {success}
+              <div className="bg-emerald-50 border border-emerald-100 text-emerald-700 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
+                ✓ <span>{success}</span>
               </div>
             )}
 
             <button
               type="submit"
               disabled={isLoading || !username}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center justify-center space-x-2 transition-colors disabled:opacity-50"
+              className="btn-primary w-full flex justify-center items-center h-10"
             >
               {isLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                <div className="flex items-center gap-2">
+                  <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>
                   <span>Registering...</span>
-                </>
+                </div>
               ) : (
-                <>
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4"
-                    />
-                  </svg>
-                  <span>Register with Biometrics</span>
-                </>
+                "Register Device"
               )}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              Already have an account?{" "}
-              <a
-                href="/login"
-                className="text-indigo-600 hover:text-indigo-800 font-medium"
-              >
-                Sign in
-              </a>
-            </p>
-          </div>
         </div>
 
-        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <div className="text-sm text-blue-800">
-              <p className="font-medium">Secure Passkeys</p>
-              <p className="mt-1">
-                Your credentials are never sent to the server. We only store a
-                public key to verify your identity later.
-              </p>
-            </div>
-          </div>
-        </div>
+        <p className="mt-6 text-center text-sm text-gray-500">
+          Already have an account?{' '}
+          <a href="/login" className="font-semibold text-slate-900 hover:underline">
+            Sign in
+          </a>
+        </p>
+
       </div>
     </div>
   );
