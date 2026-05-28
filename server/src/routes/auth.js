@@ -112,7 +112,7 @@ router.post("/verify-registration", async (req, res) => {
       const geo = geoip.lookup(ip);
 
       if (geo) {
-        locationString = [geo.city, geo.region, geo.country]
+        locationString = [geo.city, geo.region, geo.country ? new Intl.DisplayNames(["en"], {type: "region"}).of(geo.country) : "Unknown Country"]
           .filter(Boolean)
           .join(", ");
       } else if (ip === "::1" || ip === "127.0.0.1") {
@@ -238,7 +238,7 @@ router.post("/verify-authentication", async (req, res) => {
       const geo = geoip.lookup(ip);
 
       if (geo) {
-        locationString = [geo.city, geo.region, geo.country]
+        locationString = [geo.city, geo.region, geo.country ? new Intl.DisplayNames(["en"], {type: "region"}).of(geo.country) : "Unknown Country"]
           .filter(Boolean)
           .join(", ");
       } else if (ip === "::1" || ip === "127.0.0.1") {
@@ -409,7 +409,7 @@ router.delete("/authenticator/:id", async (req, res) => {
       const geo = geoip.lookup(ip);
 
       if (geo) {
-        locationString = [geo.city, geo.region, geo.country]
+        locationString = [geo.city, geo.region, geo.country ? new Intl.DisplayNames(["en"], {type: "region"}).of(geo.country) : "Unknown Country"]
           .filter(Boolean)
           .join(", ");
       } else if (ip === "::1" || ip === "127.0.0.1") {
