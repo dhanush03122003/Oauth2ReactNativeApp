@@ -1,13 +1,16 @@
-import { Link, NavLink } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 function Navbar({ user, onLogout }) {
+  const location = useLocation();
+  const path = location.pathname;
+
   return (
     <nav className="bg-white border-b border-gray-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <Link to="/" className="flex items-center space-x-2 group">
-              <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center group-hover:bg-slate-800 transition-colors">
+              <div className="w-8 h-8 bg-slate-900 rounded-lg flex items-center justify-center group-hover:bg-slate-800 transition-colors shadow-sm">
                 <svg
                   className="w-5 h-5 text-white"
                   fill="none"
@@ -25,43 +28,41 @@ function Navbar({ user, onLogout }) {
               <span className="text-xl font-bold text-gray-900 tracking-tight">WebAuthn</span>
             </Link>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-3">
             {user ? (
               <>
                 <span className="text-sm font-medium text-gray-500">Welcome, <span className="text-gray-900">{user.username}</span></span>
                 <div className="w-px h-4 bg-gray-200 mx-2"></div>
                 <button
                   onClick={onLogout}
-                  className="text-sm font-medium text-gray-500 hover:text-slate-900 transition-colors"
+                  className="px-3 py-2 text-sm font-medium text-gray-600 hover:text-slate-900 hover:bg-gray-50 rounded-lg transition-colors"
                 >
                   Log out
                 </button>
               </>
             ) : (
-              <>
-                <NavLink
+              <div className="flex items-center space-x-2 bg-gray-50/50 p-1 rounded-lg border border-gray-100">
+                <Link
                   to="/login"
-                  className={({ isActive }) =>
-                    `text-sm font-medium transition-colors ${
-                      isActive ? 'text-slate-900' : 'text-gray-500 hover:text-slate-900'
-                    }`
-                  }
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
+                    path === '/login'
+                      ? 'bg-white text-slate-900 shadow-sm ring-1 ring-gray-200/50'
+                      : 'text-gray-500 hover:text-slate-900 hover:bg-gray-100/50'
+                  }`}
                 >
                   Log in
-                </NavLink>
-                <NavLink
+                </Link>
+                <Link
                   to="/register"
-                  className={({ isActive }) =>
-                    `px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                      isActive
-                        ? 'bg-slate-900 text-white shadow-sm ring-2 ring-slate-900 ring-offset-2'
-                        : 'bg-white border border-gray-200 text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-300'
-                    }`
-                  }
+                  className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all duration-200 ${
+                    path === '/register'
+                      ? 'bg-white text-slate-900 shadow-sm ring-1 ring-gray-200/50'
+                      : 'text-gray-500 hover:text-slate-900 hover:bg-gray-100/50'
+                  }`}
                 >
                   Register
-                </NavLink>
-              </>
+                </Link>
+              </div>
             )}
           </div>
         </div>
